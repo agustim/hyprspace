@@ -16,6 +16,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/hyprspace/hyprspace/webserver"
+
 	"github.com/DataDrake/cli-ng/v2/cmd"
 	"github.com/hyprspace/hyprspace/config"
 	"github.com/hyprspace/hyprspace/p2p"
@@ -156,6 +158,11 @@ func UpRun(r *cmd.Root, c *cmd.Sub) {
 
 	// Configure path for lock
 	lockPath := filepath.Join(filepath.Dir(cfg.Path), cfg.Interface.Name+".lock")
+
+	// Start webserver
+	fmt.Println("[+] Starting Web Server")
+
+	go webserver.CreateServer(cfg)
 
 	// Register the application to listen for SIGINT/SIGTERM
 	go signalExit(host, lockPath)
