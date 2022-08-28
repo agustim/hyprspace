@@ -162,7 +162,7 @@ func UpRun(r *cmd.Root, c *cmd.Sub) {
 	// Start webserver
 	fmt.Println("[+] Starting Web Server")
 
-	go webserver.CreateServer(ctx, host, dht, cfg, peerTable)
+	go webserver.CreateServer(ctx, host, dht, cfg, peerTable, RevLookup)
 
 	// Register the application to listen for SIGINT/SIGTERM
 	go signalExit(host, lockPath)
@@ -354,6 +354,7 @@ func createDaemon(cfg *config.Config) error {
 func streamHandler(stream network.Stream) {
 	// If the remote node ID isn't in the list of known nodes don't respond.
 	if _, ok := RevLookup[stream.Conn().RemotePeer().Pretty()]; !ok {
+		fmt.Printf("[+] Reset new Stream from %s\n", stream.Conn().RemotePeer())
 		stream.Reset()
 		return
 	}

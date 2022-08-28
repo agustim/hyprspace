@@ -22,12 +22,13 @@ type Server struct {
 	dht       *dht.IpfsDHT
 	cfg       *config.Config
 	peerTable map[string]peer.ID
+	RevLookup map[string]string
 }
 
 // Create a http server to read and edit the config file
-func CreateServer(ctx context.Context, host host.Host, dht *dht.IpfsDHT, cfg *config.Config, peersTable map[string]peer.ID) {
+func CreateServer(ctx context.Context, host host.Host, dht *dht.IpfsDHT, cfg *config.Config, peersTable map[string]peer.ID, RevLookup map[string]string) {
 	// Create a new web server
-	server := &Server{ctx: ctx, host: host, dht: dht, cfg: cfg, peerTable: peersTable}
+	server := &Server{ctx: ctx, host: host, dht: dht, cfg: cfg, peerTable: peersTable, RevLookup: RevLookup}
 	server.Init()
 	server.Run()
 }
@@ -114,6 +115,7 @@ func (s *Server) AddPeer(w http.ResponseWriter, r *http.Request, ps httprouter.P
 		w.Write(jsonResp)
 	}
 	s.cfg.Peers[ip] = config.Peer{ID: peerid}
+	s.RevLookup[peerid] = ip
 	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "application/json")
 	jsonResp, err := json.Marshal(s.cfg.Peers)
