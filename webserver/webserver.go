@@ -40,11 +40,13 @@ func (s *Server) Init() {
 	s.router.GET("/routes", s.Routes)
 	s.router.GET("/add-route/:net/:mask/:gateway", s.AddRoute)
 	s.router.GET("/remove-route/:net/:mask/:gateway", s.RemoveRoute)
+	s.router.GET("/peers", s.Peers)
 	s.router.GET("/add-peer/:ip/:peerid", s.AddPeer)
+	s.router.GET("/remove-peer/:ip", s.RemovePeer)
 }
 
 func (s *Server) Run() {
-	log.Fatal(http.ListenAndServe(":8080", s.router))
+	log.Fatal(http.ListenAndServe("localhost:8080", s.router))
 }
 
 func (s *Server) Index(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
@@ -100,6 +102,16 @@ func (s *Server) RemoveRoute(w http.ResponseWriter, r *http.Request, ps httprout
 	w.Write(jsonResp)
 }
 
+func (s *Server) Peers(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "application/json")
+	jsonResp, err := json.Marshal(s.cfg.Peers)
+	if err != nil {
+		log.Fatalf("Error happened in JSON marshal. Err: %s", err)
+	}
+	w.Write(jsonResp)
+}
+
 func (s *Server) AddPeer(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	var err error
 	ip := ps.ByName("ip")
@@ -119,6 +131,26 @@ func (s *Server) AddPeer(w http.ResponseWriter, r *http.Request, ps httprouter.P
 	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "application/json")
 	jsonResp, err := json.Marshal(s.cfg.Peers)
+	if err != nil {
+		log.Fatalf("Error happened in JSON marshal. Err: %s", err)
+	}
+	w.Write(jsonResp)
+	// Setup P2P Discovery
+	go p2p.Discover(s.ctx, s.host, s.dht, s.peerTable)
+	go p2p.PrettyDiscovery(s.ctx, s.host, s.peerTable)
+}
+
+func (s *Server) RemovePeer(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	var err error
+	ip := ps.ByName("ip")
+	if peerid, ok := s.peerTable[ip]; ok {
+		delete(s.peerTable, ip)
+		delete(s.cfg.Peers, ip)
+		delete(s.RevLookup, peerid.String())
+	}
+	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "application/json")
+	jsonResp, err := json.Marshal(s.RevLookup)
 	if err != nil {
 		log.Fatalf("Error happened in JSON marshal. Err: %s", err)
 	}

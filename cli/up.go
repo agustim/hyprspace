@@ -352,6 +352,7 @@ func createDaemon(cfg *config.Config) error {
 }
 
 func streamHandler(stream network.Stream) {
+	fmt.Printf("[+] streamHandler from %s\n", stream.Conn().RemotePeer())
 	// If the remote node ID isn't in the list of known nodes don't respond.
 	if _, ok := RevLookup[stream.Conn().RemotePeer().Pretty()]; !ok {
 		fmt.Printf("[+] Reset new Stream from %s\n", stream.Conn().RemotePeer())
@@ -381,6 +382,8 @@ func streamHandler(stream network.Stream) {
 				return
 			}
 		}
+		// Here we can controller the packet and do whatever we want with it.
+
 		tunDev.Iface.Write(packet[:size])
 	}
 }
