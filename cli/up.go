@@ -22,9 +22,9 @@ import (
 	"github.com/hyprspace/hyprspace/config"
 	"github.com/hyprspace/hyprspace/p2p"
 	"github.com/hyprspace/hyprspace/tun"
-	"github.com/libp2p/go-libp2p-core/host"
-	"github.com/libp2p/go-libp2p-core/network"
-	"github.com/libp2p/go-libp2p-core/peer"
+	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/network"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/nxadm/tail"
 )
 
@@ -73,9 +73,16 @@ func UpRun(r *cmd.Root, c *cmd.Sub) {
 		configPath = "/etc/hyprspace/" + args.InterfaceName + ".yaml"
 	}
 
+	// Setup System Context
+	ctx := context.Background()
+
 	// Read in configuration from file.
 	cfg, err := config.Read(configPath)
 	checkErr(err)
+
+	if cfg.Verbose {
+		ctx = context.WithValue(ctx, config.WithVerbose, true)
+	}
 
 	if !flags.Foreground {
 		if err := createDaemon(cfg); err != nil {
@@ -125,9 +132,6 @@ func UpRun(r *cmd.Root, c *cmd.Sub) {
 		checkErr(err)
 	}
 
-	// Setup System Context
-	ctx := context.Background()
-
 	fmt.Println("[+] Creating LibP2P Node")
 
 	// Check that the listener port is available.
@@ -143,6 +147,10 @@ func UpRun(r *cmd.Root, c *cmd.Sub) {
 	)
 	checkErr(err)
 
+	if cfg.Verbose {
+		go p2p.DebugEvents(host, dht)
+	}
+
 	// Setup Peer Table for Quick Packet --> Dest ID lookup
 	peerTable := make(map[string]peer.ID)
 	for ip, id := range cfg.Peers {
@@ -153,8 +161,8 @@ func UpRun(r *cmd.Root, c *cmd.Sub) {
 	fmt.Println("[+] Setting Up Node Discovery via DHT")
 
 	// Setup P2P Discovery
-	go p2p.Discover(ctx, host, dht, peerTable)
-	go p2p.PrettyDiscovery(ctx, host, peerTable)
+	go p2p.Discover(ctx, host, dht, peerTable, cfg.Interface.Name)
+	go prettyDiscovery(ctx, host, peerTable)
 
 	// Configure path for lock
 	lockPath := filepath.Join(filepath.Dir(cfg.Path), cfg.Interface.Name+".lock")
@@ -382,9 +390,38 @@ func streamHandler(stream network.Stream) {
 				return
 			}
 		}
-		// Here we can controller the packet and do whatever we want with it.
-
-		tunDev.Iface.Write(packet[:size])
+		// If the protocol package is 0x98 this package is for VPN control (https://en.wikipedia.org/wiki/List_of_IP_protocol_numbers)
+		if packet[9] == 0x98 {
+			// Tractem VPN Control Protocol
+			fmt.Print("VPN Control Packetn\n")
+			Dump(packet[:size])
+		} else {
+			tunDev.Iface.Write(packet[:size])
+		}
+	}
+}
+func prettyDiscovery(ctx context.Context, node host.Host, peerTable map[string]peer.ID) {
+	// Build a temporary map of peers to limit querying to only those
+	// not connected.
+	tempTable := make(map[string]peer.ID, len(peerTable))
+	for ip, id := range peerTable {
+		tempTable[ip] = id
+	}
+	for len(tempTable) > 0 {
+		for ip, id := range tempTable {
+			stream, err := node.NewStream(ctx, id, p2p.Protocol)
+			if err != nil && (strings.HasPrefix(err.Error(), "failed to dial") ||
+				strings.HasPrefix(err.Error(), "no addresses")) {
+				// Attempt to connect to peers slowly when they aren't found.
+				time.Sleep(5 * time.Second)
+				continue
+			}
+			if err == nil {
+				fmt.Printf("[+] Connection to %s Successful. Network Ready.\n", ip)
+				stream.Close()
+			}
+			delete(tempTable, ip)
+		}
 	}
 }
 
