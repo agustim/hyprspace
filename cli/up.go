@@ -16,12 +16,15 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/hyprspace/hyprspace/debugpacket"
+	"github.com/hyprspace/hyprspace/proto98"
 	"github.com/hyprspace/hyprspace/webserver"
 
 	"github.com/DataDrake/cli-ng/v2/cmd"
 	"github.com/hyprspace/hyprspace/config"
 	"github.com/hyprspace/hyprspace/p2p"
 	"github.com/hyprspace/hyprspace/tun"
+	dht "github.com/libp2p/go-libp2p-kad-dht"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -37,6 +40,12 @@ var (
 	RevLookup map[string]string
 	// activeStreams is a map of active streams to a peer
 	activeStreams map[string]network.Stream
+	// conext is the global context for the application
+	ctx context.Context
+	// local host
+	self host.Host
+	// dht
+	myDHT *dht.IpfsDHT
 )
 
 // Up creates and brings up a Hyprspace Interface.
@@ -74,7 +83,7 @@ func UpRun(r *cmd.Root, c *cmd.Sub) {
 	}
 
 	// Setup System Context
-	ctx := context.Background()
+	ctx = context.Background()
 
 	// Read in configuration from file.
 	cfg, err := config.Read(configPath)
@@ -139,16 +148,17 @@ func UpRun(r *cmd.Root, c *cmd.Sub) {
 	checkErr(err)
 
 	// Create P2P Node
-	host, dht, err := p2p.CreateNode(
+	self, myDHT, err = p2p.CreateNode(
 		ctx,
 		cfg.Interface.PrivateKey,
 		port,
 		streamHandler,
 	)
+	fmt.Println(self)
 	checkErr(err)
 
 	if cfg.Verbose {
-		go p2p.DebugEvents(host, dht)
+		go p2p.DebugEvents(self, myDHT)
 	}
 
 	// Setup Peer Table for Quick Packet --> Dest ID lookup
@@ -161,8 +171,8 @@ func UpRun(r *cmd.Root, c *cmd.Sub) {
 	fmt.Println("[+] Setting Up Node Discovery via DHT")
 
 	// Setup P2P Discovery
-	go p2p.Discover(ctx, host, dht, peerTable, cfg.Interface.Name)
-	go prettyDiscovery(ctx, host, peerTable)
+	go p2p.Discover(ctx, self, myDHT, peerTable, cfg.Interface.Name)
+	go p2p.PrettyDiscovery(ctx, self, peerTable)
 
 	// Configure path for lock
 	lockPath := filepath.Join(filepath.Dir(cfg.Path), cfg.Interface.Name+".lock")
@@ -170,10 +180,10 @@ func UpRun(r *cmd.Root, c *cmd.Sub) {
 	// Start webserver
 	fmt.Println("[+] Starting Web Server")
 
-	go webserver.CreateServer(ctx, host, dht, cfg, peerTable, RevLookup)
+	go webserver.CreateServer(ctx, self, myDHT, cfg, tunDev, peerTable, RevLookup)
 
 	// Register the application to listen for SIGINT/SIGTERM
-	go signalExit(host, lockPath)
+	go signalExit(self, lockPath)
 
 	// Write lock to filesystem to indicate an existing running daemon.
 	err = os.WriteFile(lockPath, []byte(fmt.Sprint(os.Getpid())), os.ModePerm)
@@ -246,7 +256,7 @@ func UpRun(r *cmd.Root, c *cmd.Sub) {
 		// the interface.
 		if peer, ok := peerTable[dst]; ok {
 			fmt.Println("[+] New Packet from", peer.String())
-			stream, err = host.NewStream(ctx, peer, p2p.Protocol)
+			stream, err = self.NewStream(ctx, peer, p2p.Protocol)
 			if err != nil {
 				continue
 			}
@@ -360,10 +370,12 @@ func createDaemon(cfg *config.Config) error {
 }
 
 func streamHandler(stream network.Stream) {
-	fmt.Printf("[+] streamHandler from %s\n", stream.Conn().RemotePeer())
+	myHostInfo := stream.Conn().LocalPeer()
+	peerID := stream.Conn().RemotePeer()
+	fmt.Printf("[+] streamHandler from %s -> %s\n", peerID, myHostInfo)
 	// If the remote node ID isn't in the list of known nodes don't respond.
-	if _, ok := RevLookup[stream.Conn().RemotePeer().Pretty()]; !ok {
-		fmt.Printf("[+] Reset new Stream from %s\n", stream.Conn().RemotePeer())
+	if _, ok := RevLookup[peerID.Pretty()]; !ok {
+		fmt.Printf("[+] Reset new Stream from %s\n", peerID)
 		stream.Reset()
 		return
 	}
@@ -393,34 +405,13 @@ func streamHandler(stream network.Stream) {
 		// If the protocol package is 0x98 this package is for VPN control (https://en.wikipedia.org/wiki/List_of_IP_protocol_numbers)
 		if packet[9] == 0x98 {
 			// Tractem VPN Control Protocol
-			fmt.Print("VPN Control Packetn\n")
-			Dump(packet[:size])
+			fmt.Println("VPN Control Packet:")
+			debugpacket.Dump(packet[:size])
+			fmt.Println("self:", self)
+			fmt.Println("peerID:", peerID)
+			proto98.Handler(ctx, self, peerID, packet[:size])
 		} else {
 			tunDev.Iface.Write(packet[:size])
-		}
-	}
-}
-func prettyDiscovery(ctx context.Context, node host.Host, peerTable map[string]peer.ID) {
-	// Build a temporary map of peers to limit querying to only those
-	// not connected.
-	tempTable := make(map[string]peer.ID, len(peerTable))
-	for ip, id := range peerTable {
-		tempTable[ip] = id
-	}
-	for len(tempTable) > 0 {
-		for ip, id := range tempTable {
-			stream, err := node.NewStream(ctx, id, p2p.Protocol)
-			if err != nil && (strings.HasPrefix(err.Error(), "failed to dial") ||
-				strings.HasPrefix(err.Error(), "no addresses")) {
-				// Attempt to connect to peers slowly when they aren't found.
-				time.Sleep(5 * time.Second)
-				continue
-			}
-			if err == nil {
-				fmt.Printf("[+] Connection to %s Successful. Network Ready.\n", ip)
-				stream.Close()
-			}
-			delete(tempTable, ip)
 		}
 	}
 }

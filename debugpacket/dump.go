@@ -1,4 +1,4 @@
-package cli
+package debugpacket
 
 import "fmt"
 

@@ -3,16 +3,19 @@ package webserver
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 
 	"net/http"
 
 	"github.com/hyprspace/hyprspace/config"
 	"github.com/hyprspace/hyprspace/p2p"
+	"github.com/hyprspace/hyprspace/proto98"
+	"github.com/hyprspace/hyprspace/tun"
 	"github.com/julienschmidt/httprouter"
-	"github.com/libp2p/go-libp2p-core/host"
-	"github.com/libp2p/go-libp2p-core/peer"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
+	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/peer"
 )
 
 type Server struct {
@@ -21,14 +24,15 @@ type Server struct {
 	host      host.Host
 	dht       *dht.IpfsDHT
 	cfg       *config.Config
+	tunDev    *tun.TUN
 	peerTable map[string]peer.ID
 	RevLookup map[string]string
 }
 
 // Create a http server to read and edit the config file
-func CreateServer(ctx context.Context, host host.Host, dht *dht.IpfsDHT, cfg *config.Config, peersTable map[string]peer.ID, RevLookup map[string]string) {
+func CreateServer(ctx context.Context, host host.Host, dht *dht.IpfsDHT, cfg *config.Config, tunDev *tun.TUN, peersTable map[string]peer.ID, RevLookup map[string]string) {
 	// Create a new web server
-	server := &Server{ctx: ctx, host: host, dht: dht, cfg: cfg, peerTable: peersTable, RevLookup: RevLookup}
+	server := &Server{ctx: ctx, host: host, dht: dht, cfg: cfg, tunDev: tunDev, peerTable: peersTable, RevLookup: RevLookup}
 	server.Init()
 	server.Run()
 }
@@ -43,6 +47,7 @@ func (s *Server) Init() {
 	s.router.GET("/peers", s.Peers)
 	s.router.GET("/add-peer/:ip/:peerid", s.AddPeer)
 	s.router.GET("/remove-peer/:ip", s.RemovePeer)
+	s.router.GET("/ping98/:ip", s.Ping98)
 }
 
 func (s *Server) Run() {
@@ -136,7 +141,7 @@ func (s *Server) AddPeer(w http.ResponseWriter, r *http.Request, ps httprouter.P
 	}
 	w.Write(jsonResp)
 	// Setup P2P Discovery
-	go p2p.Discover(s.ctx, s.host, s.dht, s.peerTable)
+	go p2p.Discover(s.ctx, s.host, s.dht, s.peerTable, s.cfg.Interface.Name)
 	go p2p.PrettyDiscovery(s.ctx, s.host, s.peerTable)
 }
 
@@ -156,6 +161,27 @@ func (s *Server) RemovePeer(w http.ResponseWriter, r *http.Request, ps httproute
 	}
 	w.Write(jsonResp)
 	// Setup P2P Discovery
-	go p2p.Discover(s.ctx, s.host, s.dht, s.peerTable)
+	go p2p.Discover(s.ctx, s.host, s.dht, s.peerTable, s.cfg.Interface.Name)
 	go p2p.PrettyDiscovery(s.ctx, s.host, s.peerTable)
+}
+
+func (s *Server) Ping98(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	//var err error
+	var retorn = []byte("{\"status\": \"ok\"}")
+	ip := ps.ByName("ip")
+
+	// Send the packet to peer
+	if err := proto98.Ping(s.ctx, s.host, s.cfg.Interface.Address, ip, s.peerTable); err != nil {
+		writeErrorJSON(w, err.Error())
+		return
+	}
+	fmt.Println("Ping sent to", ip)
+	w.Write(retorn)
+}
+
+// Write error JSON to the response
+func writeErrorJSON(w http.ResponseWriter, err string) {
+	var retorn = []byte("{\"status\": \"error\", \"message\": \"" + err + "\"}")
+	fmt.Println(err)
+	w.Write(retorn)
 }

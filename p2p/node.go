@@ -19,7 +19,7 @@ import (
 )
 
 // Protocol is a descriptor for the Hyprspace P2P Protocol.
-const Protocol = "/hyprspace/0.0.1"
+const Protocol = "/hyprspace/0.0.1" //Hyprspace Web Generation ;-)
 
 // CreateNode creates an internal Libp2p nodes and returns it and it's DHT Discovery service.
 func CreateNode(ctx context.Context, inputKey string, port int, handler network.StreamHandler) (node host.Host, dhtOut *dht.IpfsDHT, err error) {
@@ -59,6 +59,7 @@ func CreateNode(ctx context.Context, inputKey string, port int, handler network.
 
 	// Define Bootstrap Nodes.
 	peers := []string{
+		// "/ip4/104.131.131.82/tcp/4001/ipfs/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ",
 		"/dnsaddr/bootstrap.libp2p.io/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt",
 		"/ip4/104.131.131.82/tcp/4001/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ",
 		"/ip4/104.131.131.82/udp/4001/quic/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ",
