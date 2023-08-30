@@ -13,7 +13,8 @@ var appVersion string = "develop"
 
 // GlobalFlags contains the flags for commands.
 type GlobalFlags struct {
-	Config string `short:"c" long:"config" desc:"Specify a custom config path."`
+	Config         string `short:"c" long:"config" desc:"Specify a custom config path."`
+	BootstrapPeers string `short:"p" long:"bootstrap Peers" desc:"Specify a bootstrap peers coma separate."`
 }
 
 // Root is the main command.

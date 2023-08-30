@@ -22,7 +22,7 @@ import (
 const Protocol = "/hyprspace/0.0.1" //Hyprspace Web Generation ;-)
 
 // CreateNode creates an internal Libp2p nodes and returns it and it's DHT Discovery service.
-func CreateNode(ctx context.Context, inputKey string, port int, handler network.StreamHandler) (node host.Host, dhtOut *dht.IpfsDHT, err error) {
+func CreateNode(ctx context.Context, inputKey string, port int, handler network.StreamHandler, peers []string) (node host.Host, dhtOut *dht.IpfsDHT, err error) {
 	// Unmarshal Private Key
 	privateKey, err := crypto.UnmarshalPrivateKey([]byte(inputKey))
 	if err != nil {
@@ -55,19 +55,8 @@ func CreateNode(ctx context.Context, inputKey string, port int, handler network.
 	node.SetStreamHandler(Protocol, handler)
 
 	// Create DHT Subsystem
+	fmt.Println("[+] Attempting to Create DHT Subsystem in Client Mode")
 	dhtOut = dht.NewDHTClient(ctx, node, datastore.NewMapDatastore())
-
-	// Define Bootstrap Nodes.
-	peers := []string{
-		// "/ip4/104.131.131.82/tcp/4001/ipfs/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ",
-		"/dnsaddr/bootstrap.libp2p.io/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt",
-		"/ip4/104.131.131.82/tcp/4001/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ",
-		"/ip4/104.131.131.82/udp/4001/quic/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ",
-		"/dnsaddr/bootstrap.libp2p.io/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN",
-		"/dnsaddr/bootstrap.libp2p.io/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa",
-		"/dnsaddr/bootstrap.libp2p.io/p2p/QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb",
-		"/dnsaddr/bootstrap.libp2p.io/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt",
-	}
 
 	// Convert Bootstap Nodes into usable addresses.
 	BootstrapPeers := make(map[peer.ID]*peer.AddrInfo, len(peers))
@@ -98,6 +87,7 @@ func CreateNode(ctx context.Context, inputKey string, port int, handler network.
 	fmt.Println("[+] Connecting Bootstrap Peers")
 
 	for _, peerInfo := range BootstrapPeers {
+		fmt.Printf("    -> Attempting to Connect to Peer: %s\n", peerInfo.String())
 		go func(peerInfo *peer.AddrInfo) {
 			defer wg.Done()
 			err := node.Connect(ctx, *peerInfo)
@@ -117,7 +107,6 @@ func CreateNode(ctx context.Context, inputKey string, port int, handler network.
 	if err := dhtOut.Bootstrap(ctx); err != nil {
 		return node, dhtOut, err
 	}
-
 	if count < 1 {
 		return node, dhtOut, errors.New("unable to bootstrap libp2p node")
 	}

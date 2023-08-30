@@ -82,6 +82,9 @@ func UpRun(r *cmd.Root, c *cmd.Sub) {
 		configPath = "/etc/hyprspace/" + args.InterfaceName + ".yaml"
 	}
 
+	// Parse Global Bootstrap Flag for Custom Bootstrap Peer
+	bootstrapPeers := strings.Split(r.Flags.(*GlobalFlags).BootstrapPeers, ",")
+
 	// Setup System Context
 	ctx = context.Background()
 
@@ -147,12 +150,34 @@ func UpRun(r *cmd.Root, c *cmd.Sub) {
 	port, err := verifyPort(cfg.Interface.ListenPort)
 	checkErr(err)
 
+	// Create P2P Bootstrap Node List
+	fmt.Println("[+] Creating Bootstrap Node List")
+
+	peers := []string{
+		"/ip4/104.131.131.82/tcp/4001/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ",
+		"/ip4/104.131.131.82/udp/4001/quic/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ",
+		"/dnsaddr/bootstrap.libp2p.io/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN",
+		"/dnsaddr/bootstrap.libp2p.io/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa",
+		"/dnsaddr/bootstrap.libp2p.io/p2p/QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb",
+		"/dnsaddr/bootstrap.libp2p.io/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt",
+	}
+
+	if len(bootstrapPeers) > 0 && bootstrapPeers[0] != "" {
+		fmt.Printf("[+] Adding Custom Bootstrap Peers - %d\n", len(bootstrapPeers))
+		peers = append(bootstrapPeers, peers...)
+	}
+
+	fmt.Println("[+] Bootstrapping with Peers:")
+	for _, peer := range peers {
+		fmt.Printf("%s\n", peer)
+	}
 	// Create P2P Node
 	self, myDHT, err = p2p.CreateNode(
 		ctx,
 		cfg.Interface.PrivateKey,
 		port,
 		streamHandler,
+		peers,
 	)
 	fmt.Println(self)
 	checkErr(err)
